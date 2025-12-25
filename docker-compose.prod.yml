@@ -1,0 +1,219 @@
+# Production Docker Compose Override Configuration
+# Use this file for production deployments by running:
+# docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # Production Traefik configuration
+  traefik:
+    # Enable Let's Encrypt for production domains
+    environment:
+      - "TRAEFIK_CERT_RESOLVER=letsencrypt"
+
+    # Remove dashboard in production (security best practice)
+    labels:
+      # Comment out or remove dashboard labels in production
+      - "traefik.enable=false"
+
+    # Add rate limiting
+    command:
+      - "--api.dashboard=false"  # Disable dashboard
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.http.address=:80"
+      - "--entrypoints.https.address=:443"
+      - "--entrypoints.http.http.redirections.entrypoint.to=https"
+      - "--entrypoints.http.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/etc/ssl/traefik/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+      - "--log.level=WARN"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--metrics.prometheus=true"
+      - "--ping=true"
+      - "--tracing.jaeger=true"
+      - "--tracing.jaeger.localAgentHostPort=jaeger:6831"
+
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service=traefik,environment=production"
+
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+    # Health check with shorter intervals for production
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Production Llama Swappo configuration
+  llama-swappo:
+    # Enhanced security labels for production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.llama-swappo.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.llama-swappo.entrypoints=https"
+      - "traefik.http.routers.llama-swappo.tls.certresolver=letsencrypt"
+      - "traefik.http.services.llama-swappo.loadbalancer.server.port=8080"
+
+      # Enhanced security headers for production
+      - "traefik.http.middlewares.llama-swappo-headers.headers.customRequestHeaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.customResponseHeaders.X-Content-Type-Options=nosniff"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.customResponseHeaders.X-Frame-Options=DENY"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.customResponseHeaders.Content-Security-Policy=default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'"
+
+      # Rate limiting for production
+      - "traefik.http.middlewares.llama-swappo-ratelimit.ratelimit.average=50"
+      - "traefik.http.middlewares.llama-swappo-ratelimit.ratelimit.burst=100"
+      - "traefik.http.routers.llama-swappo.middlewares=llama-swappo-headers,llama-swappo-ratelimit"
+
+    # Production resource management
+    deploy:
+      resources:
+        limits:
+          memory: ${MEMORY_LIMIT:-96G}
+        reservations:
+          memory: ${MEMORY_RESERVATION:-32G}
+          cpus: ${CPU_RESERVATION:-4}
+
+    # Enhanced logging for production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+        labels: "service=llama-swappo,environment=production"
+
+    # Production health checks
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+    # Environment variables for production
+    environment:
+      - LLAMA_CACHE=${LLAMA_CACHE:-/models/llama-cache}
+      - HOME=/app
+      - ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES:-0}
+      - HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-WARN}
+      - ENVIRONMENT=production
+
+  # Jaeger for distributed tracing (optional)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: llama-swappo-jaeger
+    restart: unless-stopped
+    environment:
+      - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "9411:9411"    # Zipkin compatible
+    networks:
+      - traefik-public
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Prometheus for metrics collection (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: llama-swappo-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - traefik-public
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: llama-swappo-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.grafana.entrypoints=https"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Production volumes
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# Production networks
+networks:
+  traefik-public:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    labels:
+      - "environment=production"
+
+  llama-swappo-internal:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+    labels:
+      - "environment=production"

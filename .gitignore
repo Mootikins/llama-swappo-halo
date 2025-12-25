@@ -1,0 +1,88 @@
+# Environment variables
+.env
+
+# Configuration files (may contain sensitive data)
+config/config.yaml
+!config/config.yaml.example
+!docker-compose.yml
+!docker-compose.prod.yml
+!.github/workflows/*.yml
+
+# SSL certificates
+certs/
+*.pem
+*.key
+*.crt
+*.csr
+acme.json
+
+# Cache directories
+cache/
+models/llama-cache/
+
+# Logs
+logs/
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
+
+# Prometheus data
+prometheus_data/
+
+# Grafana data
+grafana_data/
+
+# Monitoring configs
+prometheus.yml
+grafana/
+monitoring/
+
+# Node modules (if any Node.js tools)
+node_modules/
+
+# Python cache (if any Python tools)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Secrets and passwords
+secrets/
+passwords.txt
+*.env.local
+*.env.production
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Build artifacts
+dist/
+build/
+out/

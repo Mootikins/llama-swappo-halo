@@ -1,0 +1,196 @@
+version: '3.8'
+
+# Docker Compose template for Llama Swappo with Traefik reverse proxy
+# This setup includes:
+# - Llama Swappo service with AMD GPU support
+# - Traefik reverse proxy with auto HTTPS (self-signed certificates)
+# - Proper volume mounting for models and configuration
+# - Health checks and resource limits
+
+services:
+  # Traefik Reverse Proxy with HTTPS termination
+  traefik:
+    image: traefik:v2.11
+    container_name: llama-swappo-traefik
+    restart: unless-stopped
+
+    # Port mapping for HTTP and HTTPS
+    ports:
+      - "80:80"       # HTTP
+      - "443:443"     # HTTPS
+
+    # Volume mounts for configuration and certificates
+    volumes:
+      - ./traefik:/etc/traefik:ro
+      - ./certs:/etc/ssl/traefik
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    # Traefik configuration
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.http.address=:80"
+      - "--entrypoints.https.address=:443"
+      - "--entrypoints.http.http.redirections.entrypoint.to=https"
+      - "--entrypoints.http.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@localhost}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/etc/ssl/traefik/acme.json"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--metrics.prometheus=true"
+
+    # Labels for Traefik dashboard (optional - comment out if not needed)
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`${TRAEFIK_DASHBOARD_HOST:-traefik.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.traefik.entrypoints=https"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_AUTH_USER:-admin:$$apr1$$$$6$$oZ5hK6JzTp1Rm9x5sX2zG.}"
+
+    # Network configuration
+    networks:
+      - traefik-public
+      - llama-swappo-internal
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Llama Swappo Service
+  llama-swappo:
+    # Use local build if BUILD_LOCAL=true, otherwise use pre-built image
+    build:
+      context: ./docker
+      dockerfile: Dockerfile
+      args:
+        BACKEND: ${LLAMA_SWAPPO_BACKEND:-rocm-6.4.4-rocwmma}
+    image: ${LLAMA_SWAPPO_IMAGE:-llama-swappo-halo-rocm-rocwmma:latest}
+    container_name: llama-swappo
+    restart: unless-stopped
+
+    # Command and arguments
+    command: ["/app/llama-swap"]
+    args: ["-config", "/app/config/config.yaml"]
+
+    # Environment variables
+    environment:
+      - LLAMA_CACHE=${LLAMA_CACHE:-/models/llama-cache}
+      - HOME=/app
+      - ROCR_VISIBLE_DEVICES=${ROCR_VISIBLE_DEVICES:-0}
+      - HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-0}
+
+    # Volume mounts
+    volumes:
+      # Models directory (REQUIRED)
+      - ${MODELS_PATH:-/home/moot/models/language}:/models:ro
+
+      # Configuration file (REQUIRED)
+      - ${CONFIG_PATH:-./config/config.yaml}:/app/config/config.yaml:ro
+
+      # GPU device access (AMD ROCm)
+      - /dev/dri:/dev/dri
+      - /dev/kfd:/dev/kfd
+
+      # Cache directory (optional but recommended)
+      - ${CACHE_PATH:-./cache}:/models/llama-cache
+
+      # ROCm libraries (if needed)
+      - /opt/rocm:/opt/rocm:ro
+
+    # Security context for GPU access
+    privileged: true
+    user: "0:0"
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 96G
+        reservations:
+          memory: 32G
+          cpus: '4'
+
+    # Port (only internal, accessed through Traefik)
+    expose:
+      - "8080"
+
+    # Traefik labels for routing
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.llama-swappo.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.llama-swappo.entrypoints=https"
+      - "traefik.http.routers.llama-swappo.tls=true"
+      - "traefik.http.routers.llama-swappo.tls.certresolver=letsencrypt"
+      - "traefik.http.services.llama-swappo.loadbalancer.server.port=8080"
+
+      # Health check routing
+      - "traefik.http.routers.llama-swappo-health.rule=Host(`${DOMAIN:-localhost}`) && PathPrefix(`/health`)"
+      - "traefik.http.routers.llama-swappo-health.entrypoints=https"
+      - "traefik.http.routers.llama-swappo-health.tls=true"
+      - "traefik.http.routers.llama-swappo-health.tls.certresolver=letsencrypt"
+
+      # Metrics routing (optional)
+      - "traefik.http.routers.llama-swappo-metrics.rule=Host(`${DOMAIN:-localhost}`) && PathPrefix(`/metrics`)"
+      - "traefik.http.routers.llama-swappo-metrics.entrypoints=https"
+      - "traefik.http.routers.llama-swappo-metrics.tls=true"
+      - "traefik.http.routers.llama-swappo-metrics.tls.certresolver=letsencrypt"
+
+      # Security headers
+      - "traefik.http.middlewares.llama-swappo-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.llama-swappo-headers.headers.stsPreload=true"
+      - "traefik.http.routers.llama-swappo.middlewares=llama-swappo-headers"
+
+    # Network configuration
+    networks:
+      - llama-swappo-internal
+
+    # Health checks
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Container logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Network definitions
+networks:
+  traefik-public:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+  llama-swappo-internal:
+    driver: bridge
+    internal: true  # No external access, only through Traefik
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+# Volume definitions (optional)
+volumes:
+  traefik-certs:
+    driver: local
+  llama-cache:
+    driver: local

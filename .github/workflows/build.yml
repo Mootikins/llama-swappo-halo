@@ -1,0 +1,118 @@
+name: Build & Push Container
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Containerfile'
+      - 'build.sh'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+    inputs:
+      enable_whisper:
+        description: 'Include whisper STT'
+        type: boolean
+        default: false
+      backend:
+        description: 'Backend variant'
+        type: choice
+        options:
+          - rocm-rocwmma
+          - rocm-base
+          - vulkan
+        default: rocm-rocwmma
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          - backend: rocm-rocwmma
+            base_tag: rocm-6.4.4-rocwmma
+          # Add more variants as needed:
+          # - backend: rocm-rocwmma-stt
+          #   base_tag: rocm-6.4.4-rocwmma
+          #   whisper: 1
+
+    steps:
+      # ROCm SDK images are large (~8GB+), need to free disk space first
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set build args
+        id: args
+        run: |
+          WHISPER="${{ matrix.whisper || inputs.enable_whisper && '1' || '0' }}"
+          BACKEND="${{ inputs.backend || matrix.backend }}"
+          BASE_TAG="${{ matrix.base_tag }}"
+
+          # Determine base_tag from backend if not in matrix
+          if [ -z "$BASE_TAG" ]; then
+            case "$BACKEND" in
+              rocm-rocwmma) BASE_TAG="rocm-6.4.4-rocwmma" ;;
+              rocm-base)    BASE_TAG="rocm-6.4.4" ;;
+              vulkan)       BASE_TAG="vulkan-radv" ;;
+            esac
+          fi
+
+          # Build tag suffix
+          TAG="${BACKEND}"
+          [ "$WHISPER" = "1" ] && TAG="${TAG}-stt"
+
+          echo "base_tag=${BASE_TAG}" >> $GITHUB_OUTPUT
+          echo "whisper=${WHISPER}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.args.outputs.tag }}
+            type=sha,prefix=${{ steps.args.outputs.tag }}-
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BACKEND=${{ steps.args.outputs.base_tag }}
+            ENABLE_WHISPER=${{ steps.args.outputs.whisper }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # This build takes ~30min due to ROCm compilation
+          # Consider using self-hosted runner for faster builds

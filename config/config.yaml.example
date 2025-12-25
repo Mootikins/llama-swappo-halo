@@ -1,0 +1,205 @@
+# =============================================================================
+# Llama Swappo Configuration Example
+# =============================================================================
+# This is an example configuration file for Llama Swappo.
+# Copy this file to config/config.yaml and modify according to your needs.
+#
+# The gpt-oss-20b model configuration is provided as an example but commented out.
+# Uncomment and modify the model path to match your setup.
+# =============================================================================
+
+# General settings
+healthCheckTimeout: 300
+logRequests: true
+metricsMaxInMemory: 1000
+ttl: 1800  # 30 minutes TTL to keep models loaded
+
+# Model groups for organization
+groups:
+  embeddings:
+    swap: false  # Embeddings can run alongside other models
+    exclusive: false
+    # Example embedding models
+    # members:
+    #   - "nomic-embed-text-v1.5-q8_0"
+    #   - "nomic-embed-text-v2-moe-q4_k_m"
+
+  main:
+    swap: true   # Only one main model at a time
+    exclusive: true
+    # Example main models
+    members:
+      # - "qwen3-4b-instruct-2507-q8_0"
+      # - "qwen2.5-coder-3b-instruct-q4_k_m"
+      # - "gpt-oss-20b-q8_k_xl"  # Uncomment to enable
+
+  # Speech-to-text group (requires ENABLE_WHISPER=1 build)
+  whisper:
+    swap: false      # Keep whisper running (fast startup not needed)
+    exclusive: false # Can run alongside LLMs
+    persistent: true # Don't unload when other groups activate
+    # members:
+    #   - "whisper-large-v3-turbo"
+
+# Hooks for startup behavior
+hooks:
+  on_startup:
+    preload:
+      # Preload embedding model on startup (optional)
+      # - "nomic-embed-text-v1.5-q8_0"
+
+# Command templates for different model types
+macros:
+  "llama": >
+    /usr/local/bin/llama-server
+    --port ${PORT}
+    --host 0.0.0.0
+    --n-gpu-layers -1
+    --batch-size 512
+    --ubatch-size 512
+    --threads 4
+
+  "llama-embed": >
+    /usr/local/bin/llama-server
+    --port ${PORT}
+    --host 0.0.0.0
+    --n-gpu-layers -1
+    --batch-size 4096
+    --ubatch-size 4096
+    --threads 4
+
+  # Whisper STT macro (requires ENABLE_WHISPER=1 build)
+  "whisper": >
+    /app/whisper-server
+    --port ${PORT}
+    --host 0.0.0.0
+    --inference-path /v1/audio/transcriptions
+
+# Model configurations
+models:
+  # =============================================================================
+  # EXAMPLE: GPT-OSS 20B Configuration
+  # =============================================================================
+  # Uncomment the following section to enable GPT-OSS 20B
+  # Make sure the model path matches your local models directory structure
+  # =============================================================================
+
+  # "gpt-oss-20b-q8_k_xl":
+  #   cmd: |
+  #     ${llama}
+  #     -m /models/unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-UD-Q8_K_XL.gguf
+  #     --ctx-size 102400
+  #     --flash-attn on
+  #     --jinja
+  #   name: "GPT-OSS 20B"
+  #   description: "Open-source conversational model with production-ready capabilities"
+  #   metadata:
+  #     architecture: "gpt-oss"
+  #     contextLength: 102400
+  #     capabilities:
+  #       - completion
+  #       - tools
+  #     family: "openai"
+  #     parameterSize: "20.9B"
+  #     quantizationLevel: "Q8_K_XL"
+
+  # =============================================================================
+  # ADDITIONAL EXAMPLE MODELS (Commented Out)
+  # =============================================================================
+  # Below are additional example configurations for different model types.
+  # Uncomment and modify as needed for your setup.
+  # =============================================================================
+
+  # Small models (3-8B)
+
+  # "qwen2.5-coder-3b-instruct-q4_k_m":
+  #   cmd: |
+  #     ${llama}
+  #     -m /models/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/qwen2.5-coder-3b-instruct-q4_k_m.gguf
+  #     --ctx-size 102400
+  #     --flash-attn on
+  #     --jinja
+  #   name: "Qwen2.5-Coder 3B Instruct"
+  #   description: "Code-focused language model with 32K context, optimized for coding tasks"
+  #   metadata:
+  #     architecture: "qwen2.5"
+  #     contextLength: 32768
+  #     capabilities:
+  #       - completion
+  #       - tools
+  #     family: "qwen"
+  #     parameterSize: "3B"
+  #     quantizationLevel: "Q4_K_M"
+
+  # Embedding models
+
+  # "nomic-embed-text-v1.5-q8_0":
+  #   cmd: |
+  #     ${llama-embed}
+  #     -m /models/nomic-ai/nomic-embed-text-v1.5-GGUF/nomic-embed-text-v1.5.Q8_0.gguf
+  #     --ctx-size 1536
+  #     --embedding
+  #   name: "Nomic Embed Text v1.5"
+  #   description: "Text embedding model with 1.5K context, optimized for semantic search and RAG"
+  #   metadata:
+  #     architecture: "nomic-bert"
+  #     contextLength: 1536
+  #     capabilities:
+  #       - embedding
+  #     family: "nomic"
+  #     parameterSize: "137M"
+  #     quantizationLevel: "Q8_0"
+
+  # =============================================================================
+  # Speech-to-Text Models (requires ENABLE_WHISPER=1 build)
+  # =============================================================================
+
+  # "whisper-large-v3-turbo":
+  #   cmd: |
+  #     ${whisper}
+  #     --model /models/stt/ggml-large-v3-turbo.bin
+  #   name: "Whisper Large v3 Turbo"
+  #   description: "OpenAI-compatible speech-to-text with ROCm acceleration"
+  #   aliases:
+  #     - "whisper-1"
+  #     - "whisper"
+  #   env:
+  #     - "LD_LIBRARY_PATH=/app/lib:/opt/rocm/lib"
+  #   metadata:
+  #     architecture: "whisper"
+  #     capabilities:
+  #       - transcription
+  #     family: "openai"
+  #     parameterSize: "809M"
+
+# =============================================================================
+# CONFIGURATION INSTRUCTIONS
+# =============================================================================
+#
+# 1. Copy this file to config/config.yaml:
+#    cp config/config.yaml.example config/config.yaml
+#
+# 2. Uncomment and configure your desired models:
+#    - Remove the # comment symbols from model sections
+#    - Verify model paths match your local directory structure
+#    - Add model IDs to the groups.members arrays above
+#
+# 3. Model path structure example:
+#    /models/
+#    ├── nomic-ai/
+#    │   └── nomic-embed-text-v1.5-GGUF/
+#    │       └── nomic-embed-text-v1.5.Q8_0.gguf
+#    ├── unsloth/
+#    │   └── gpt-oss-20b-GGUF/
+#    │       └── gpt-oss-20b-UD-Q8_K_XL.gguf
+#    └── Qwen/
+#        └── Qwen2.5-Coder-3B-Instruct-GGUF/
+#            └── qwen2.5-coder-3b-instruct-q4_k_m.gguf
+#
+# 4. Mount your models directory in docker-compose.yml:
+#    MODELS_PATH=/path/to/your/models/directory
+#
+# 5. Restart the service to apply configuration changes:
+#    docker-compose restart llama-swappo
+#
+# =============================================================================
