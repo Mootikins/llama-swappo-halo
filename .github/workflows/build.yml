@@ -1,13 +1,14 @@
 name: Build & Push Container
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'Containerfile*'
-      - 'build.sh'
-      - '.github/workflows/build.yml'
-  workflow_dispatch:
+  # Disabled automatic builds - ROCm compilation requires local build
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'Containerfile*'
+  #     - 'build.sh'
+  #     - '.github/workflows/build.yml'
+  workflow_dispatch:  # Manual trigger only
 
 env:
   REGISTRY: ghcr.io
