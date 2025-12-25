@@ -25,9 +25,14 @@ WORKDIR /build
 RUN dnf install -y git cmake gcc-c++ make && dnf clean all
 
 # Clone and build llama.cpp with ROCm support
+ENV ROCM_PATH=/opt/rocm
+ENV PATH="${ROCM_PATH}/bin:${PATH}"
+ENV HIP_PATH="${ROCM_PATH}"
+
 RUN git clone --depth 1 https://github.com/ggerganov/llama.cpp.git && \
     cd llama.cpp && \
     cmake -B build \
+        -DCMAKE_PREFIX_PATH="${ROCM_PATH}" \
         -DGGML_HIP=ON \
         -DAMDGPU_TARGETS="gfx1151" \
         -DCMAKE_HIP_ARCHITECTURES="gfx1151" \
