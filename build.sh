@@ -2,47 +2,51 @@
 # Build llama-swappo-halo container
 #
 # Usage:
-#   ./build.sh              # Base LLM proxy
-#   ./build.sh --stt        # With whisper STT (requires whisper-stt-rocm image)
+#   ./build.sh              # LLM proxy only
+#   ./build.sh --whisper    # LLM + Whisper STT
 #   ./build.sh --push       # Push to local registry
 #   ./build.sh --ghcr       # Push to ghcr.io/mootikins/llama-swappo-halo
 
 set -e
 
-CTR="${CONTAINER_CMD:-$(command -v nerdctl || command -v docker || command -v podman || echo docker)}"
 IMAGE="${IMAGE_NAME:-llama-swappo-halo}"
 GHCR_IMAGE="ghcr.io/mootikins/llama-swappo-halo"
 TAG="latest"
-CONTAINERFILE="Containerfile"
+WHISPER="false"
+BUILD_ARGS=""
 
 for arg in "$@"; do
     case $arg in
-        --stt)
-            CONTAINERFILE="Containerfile.stt"
-            TAG="stt"
+        --whisper)
+            WHISPER="true"
+            TAG="whisper"
             ;;
         --push) PUSH=1 ;;
         --ghcr) GHCR=1 ;;
     esac
 done
 
-echo "Building $IMAGE:$TAG using $CTR"
+BUILD_ARGS="--build-arg WHISPER=$WHISPER"
 
-$CTR build -f "$CONTAINERFILE" -t "$IMAGE:$TAG" .
+echo "Building $IMAGE:$TAG (WHISPER=$WHISPER)"
 
-[ "$PUSH" = "1" ] && $CTR push "$IMAGE:$TAG"
+# Use buildah for rootless builds
+buildah bud --layers $BUILD_ARGS -t "$IMAGE:$TAG" -f Containerfile .
+
+[ "$PUSH" = "1" ] && buildah push "$IMAGE:$TAG"
 
 # Push to ghcr.io
 if [ "$GHCR" = "1" ]; then
     echo "Tagging and pushing to $GHCR_IMAGE:$TAG..."
-    $CTR tag "$IMAGE:$TAG" "$GHCR_IMAGE:$TAG"
-    $CTR push "$GHCR_IMAGE:$TAG"
+    buildah tag "$IMAGE:$TAG" "$GHCR_IMAGE:$TAG"
+    buildah push "$GHCR_IMAGE:$TAG"
 fi
 
 # Import to k3s if available
-if command -v k3s &>/dev/null && [ "$CTR" != "docker" ]; then
-    echo "Importing to k3s..."
-    $CTR save "$IMAGE:$TAG" | sudo k3s ctr -n k8s.io images import - 2>/dev/null || true
+if command -v k3s &>/dev/null; then
+    echo "Importing to k3s containerd..."
+    buildah push "$IMAGE:$TAG" "docker-archive:/dev/stdout:$IMAGE:$TAG" | \
+        k3s ctr -n k8s.io images import - 2>/dev/null || true
 fi
 
 echo "Done: $IMAGE:$TAG"

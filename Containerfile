@@ -1,15 +1,21 @@
-# llama-swappo-halo: LLM proxy + llama.cpp for AMD Strix Halo (GMKtec EVO X2)
+# llama-swappo-halo: LLM proxy + llama.cpp for AMD Strix Halo (gfx1151)
 #
-# kyuz0/amd-strix-halo-toolboxes already includes llama.cpp with ROCm
-# We just add llama-swappo (Go proxy with Ollama API translation)
+# kyuz0/amd-strix-halo-toolboxes includes llama.cpp with ROCm
+# We add llama-swappo (Go proxy with Ollama API translation)
+# Optional: whisper.cpp for speech-to-text
 #
-# Build: ./build.sh
-# Build+Push: ./build.sh --ghcr
+# Build:
+#   ./build.sh              # LLM only
+#   ./build.sh --whisper    # LLM + Whisper STT
+#   ./build.sh --ghcr       # Push to ghcr.io
 
 ARG BACKEND=rocm-6.4.4-rocwmma
+ARG WHISPER=false
 
-# Build llama-swappo binary
-FROM alpine:latest AS builder
+# =============================================================================
+# Stage: swappo-builder - Build llama-swappo binary
+# =============================================================================
+FROM alpine:latest AS swappo-builder
 
 RUN apk add --no-cache git go nodejs npm ca-certificates
 
@@ -21,15 +27,68 @@ RUN git clone https://github.com/mootikins/llama-swappo.git && \
     CGO_ENABLED=0 go build -o llama-swap . && \
     strip llama-swap
 
-# Use kyuz0 toolbox which has llama.cpp + ROCm pre-built
+# =============================================================================
+# Stage: whisper-builder - Build whisper.cpp with ROCm/HIP for gfx1151
+# Only runs when WHISPER=true
+# =============================================================================
+FROM docker.io/kyuz0/amd-strix-halo-toolboxes:${BACKEND} AS whisper-builder
+
+ARG WHISPER
+RUN if [ "$WHISPER" = "true" ]; then \
+        dnf install -y git cmake make gcc gcc-c++ glibc-devel libstdc++-devel rocm-hip-sdk && \
+        git clone https://github.com/ggml-org/whisper.cpp.git /build/whisper.cpp && \
+        cd /build/whisper.cpp && \
+        mkdir build && cd build && \
+        cmake .. \
+            -DGPU_TARGETS="gfx1151" \
+            -DGGML_HIP=ON \
+            -DCMAKE_C_COMPILER=/opt/rocm/bin/amdclang \
+            -DCMAKE_CXX_COMPILER=/opt/rocm/bin/amdclang++ \
+            -DCMAKE_PREFIX_PATH="/opt/rocm" \
+            -DGGML_ROCM=1 \
+            -DCMAKE_BUILD_TYPE=Release && \
+        cmake --build . --config Release -j$(nproc) && \
+        strip bin/whisper-server bin/whisper-cli && \
+        dnf clean all && rm -rf /var/cache/dnf; \
+    else \
+        mkdir -p /build/whisper.cpp/build/bin && \
+        touch /build/whisper.cpp/build/bin/whisper-server && \
+        touch /build/whisper.cpp/build/bin/whisper-cli; \
+    fi
+
+# =============================================================================
+# Final stage: Runtime image
+# =============================================================================
 FROM docker.io/kyuz0/amd-strix-halo-toolboxes:${BACKEND}
 
+ARG WHISPER
+
 WORKDIR /app
-RUN mkdir -p /models
+RUN mkdir -p /models /models/whisper /app/lib
 
 # Copy llama-swappo binary
-COPY --from=builder /build/llama-swappo/llama-swap /app/llama-swap
+COPY --from=swappo-builder /build/llama-swappo/llama-swap /app/llama-swap
 RUN chmod +x /app/llama-swap
+
+# Copy whisper binaries and libs (only functional if WHISPER=true during build)
+COPY --from=whisper-builder /build/whisper.cpp/build/bin/whisper-server /app/whisper-server
+COPY --from=whisper-builder /build/whisper.cpp/build/bin/whisper-cli /app/whisper-cli
+COPY --from=whisper-builder /build/whisper.cpp/build/src/libwhisper.so* /app/lib/
+COPY --from=whisper-builder /build/whisper.cpp/build/ggml/src/libggml*.so* /app/lib/
+
+# Install ffmpeg for audio processing (only if whisper enabled)
+RUN if [ "$WHISPER" = "true" ]; then \
+        chmod +x /app/whisper-server /app/whisper-cli && \
+        dnf install -y ffmpeg-free && \
+        dnf clean all && rm -rf /var/cache/dnf; \
+    else \
+        rm -f /app/whisper-server /app/whisper-cli && \
+        rm -rf /app/lib; \
+    fi
+
+ENV LD_LIBRARY_PATH="/app/lib:${LD_LIBRARY_PATH}"
+
+ENV PATH="/app:${PATH}"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
