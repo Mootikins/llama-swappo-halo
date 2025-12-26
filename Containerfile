@@ -51,7 +51,9 @@ RUN if [ "$WHISPER" = "true" ]; then \
         strip bin/whisper-server bin/whisper-cli && \
         dnf clean all && rm -rf /var/cache/dnf; \
     else \
-        mkdir -p /build/whisper.cpp/build/bin && \
+        mkdir -p /build/whisper.cpp/build/bin \
+                 /build/whisper.cpp/build/src \
+                 /build/whisper.cpp/build/ggml/src && \
         touch /build/whisper.cpp/build/bin/whisper-server && \
         touch /build/whisper.cpp/build/bin/whisper-cli; \
     fi
