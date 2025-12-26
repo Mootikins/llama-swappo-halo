@@ -31,7 +31,6 @@ Based on [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-hal
 ```bash
 # Pull from ghcr.io
 docker pull ghcr.io/mootikins/llama-swappo-halo:latest
-docker pull ghcr.io/mootikins/llama-swappo-halo:whisper  # with STT
 
 # Run (docker/podman/nerdctl)
 docker run --rm -it \
@@ -49,6 +48,17 @@ See [llama-swappo documentation](https://github.com/Mootikins/llama-swappo) for 
 
 ## Whisper STT
 
+The whisper-enabled image must be built locally (ROCm build requires ~5GB which exceeds CI runner disk limits):
+
+```bash
+# Build with whisper support (requires ROCm host or buildah)
+./build.sh --whisper
+
+# Tag and push to registry
+buildah tag llama-swappo-halo:whisper ghcr.io/mootikins/llama-swappo-halo:whisper
+buildah push ghcr.io/mootikins/llama-swappo-halo:whisper
+```
+
 When built with `--whisper`, the image includes:
 
 - `/app/whisper-server` - HTTP server for transcription
@@ -56,11 +66,6 @@ When built with `--whisper`, the image includes:
 - `ffmpeg` for audio processing
 
 To use whisper alongside llama-swappo, configure llama-swappo to spawn whisper-server as needed, or run them as separate processes.
-
-## Container Tags
-
-- `latest` - LLM proxy only
-- `whisper` - LLM proxy + Whisper STT
 
 ## Requirements
 
