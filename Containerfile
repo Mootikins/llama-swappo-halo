@@ -29,14 +29,14 @@ RUN git clone https://github.com/mootikins/llama-swappo.git && \
 
 # =============================================================================
 # Stage: whisper-builder - Build whisper.cpp with ROCm/HIP for gfx1151
-# Only runs when WHISPER=true
+# Uses official ROCm dev image which has compilers (amdclang)
+# Only runs full build when WHISPER=true
 # =============================================================================
-FROM docker.io/kyuz0/amd-strix-halo-toolboxes:${BACKEND} AS whisper-builder
+FROM rocm/dev-ubuntu-22.04:6.2.4 AS whisper-builder
 
 ARG WHISPER
-# Base image already has ROCm/HIP - only install build tools
 RUN if [ "$WHISPER" = "true" ]; then \
-        dnf install -y git cmake make && \
+        apt-get update && apt-get install -y --no-install-recommends git cmake && \
         git clone https://github.com/ggml-org/whisper.cpp.git /build/whisper.cpp && \
         cd /build/whisper.cpp && \
         mkdir build && cd build && \
@@ -46,11 +46,10 @@ RUN if [ "$WHISPER" = "true" ]; then \
             -DCMAKE_C_COMPILER=/opt/rocm/bin/amdclang \
             -DCMAKE_CXX_COMPILER=/opt/rocm/bin/amdclang++ \
             -DCMAKE_PREFIX_PATH="/opt/rocm" \
-            -DGGML_ROCM=1 \
             -DCMAKE_BUILD_TYPE=Release && \
         cmake --build . --config Release -j$(nproc) && \
         strip bin/whisper-server bin/whisper-cli && \
-        dnf clean all && rm -rf /var/cache/dnf; \
+        rm -rf /var/lib/apt/lists/*; \
     else \
         mkdir -p /build/whisper.cpp/build/bin \
                  /build/whisper.cpp/build/src \
