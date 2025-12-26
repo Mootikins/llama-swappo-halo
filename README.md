@@ -1,5 +1,7 @@
 # llama-swappo-halo
 
+[![Build & Push Container](https://github.com/Mootikins/llama-swappo-halo/actions/workflows/build.yml/badge.svg)](https://github.com/Mootikins/llama-swappo-halo/actions/workflows/build.yml)
+
 Container image for running [llama-swappo](https://github.com/Mootikins/llama-swappo) (LLM proxy with Ollama API) on AMD Strix Halo (gfx1151) with ROCm.
 
 Based on [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-halo-toolboxes) which provides llama.cpp pre-built for gfx1151.
@@ -24,33 +26,26 @@ Based on [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-hal
 ./build.sh --whisper --ghcr
 ```
 
-## Usage
+## Quick Start
 
 ```bash
-# Run with k3s/containerd
-k3s ctr -n k8s.io run --rm -it \
-  --device /dev/dri --device /dev/kfd \
-  --mount type=bind,src=/path/to/models,dst=/models,options=ro \
-  --mount type=bind,src=/path/to/config.yaml,dst=/app/config.yaml,options=ro \
-  llama-swappo-halo:latest \
-  llama-swappo \
-  /app/llama-swap -config /app/config.yaml
+# Pull from ghcr.io
+docker pull ghcr.io/mootikins/llama-swappo-halo:latest
+docker pull ghcr.io/mootikins/llama-swappo-halo:whisper  # with STT
 
-# Run with podman/docker
-podman run --rm -it \
+# Run (docker/podman/nerdctl)
+docker run --rm -it \
   --device /dev/dri --device /dev/kfd \
   -v /path/to/models:/models:ro \
   -v /path/to/config.yaml:/app/config.yaml:ro \
   -p 8080:8080 \
-  llama-swappo-halo:latest \
+  ghcr.io/mootikins/llama-swappo-halo:latest \
   -config /app/config.yaml
 ```
 
 ## Configuration
 
 See [llama-swappo documentation](https://github.com/Mootikins/llama-swappo) for config.yaml format.
-
-Example config available in `config/config.yaml.example`.
 
 ## Whisper STT
 
