@@ -20,10 +20,6 @@ Based on [kyuz0/amd-strix-halo-toolboxes](https://github.com/kyuz0/amd-strix-hal
 
 # With Whisper STT support
 ./build.sh --whisper
-
-# Build and push to ghcr.io
-./build.sh --ghcr
-./build.sh --whisper --ghcr
 ```
 
 ## Quick Start
@@ -48,15 +44,10 @@ See [llama-swappo documentation](https://github.com/Mootikins/llama-swappo) for 
 
 ## Whisper STT
 
-The whisper-enabled image must be built locally (ROCm build requires ~5GB which exceeds CI runner disk limits):
+The whisper-enabled image must be built locally (ROCm toolchain ~5GB exceeds CI runner limits):
 
 ```bash
-# Build with whisper support (requires ROCm host or buildah)
 ./build.sh --whisper
-
-# Tag and push to registry
-buildah tag llama-swappo-halo:whisper ghcr.io/mootikins/llama-swappo-halo:whisper
-buildah push ghcr.io/mootikins/llama-swappo-halo:whisper
 ```
 
 When built with `--whisper`, the image includes:
