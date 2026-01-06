@@ -1,13 +1,19 @@
 # llama-swappo-halo: LLM proxy + llama.cpp for AMD Strix Halo (gfx1151)
 #
-# kyuz0/amd-strix-halo-toolboxes includes llama.cpp with ROCm
+# kyuz0/amd-strix-halo-toolboxes includes llama.cpp with ROCm or Vulkan
 # We add llama-swappo (Go proxy with Ollama API translation)
-# Optional: whisper.cpp for speech-to-text
+# Optional: whisper.cpp for speech-to-text (ROCm only)
 #
 # Build:
-#   ./build.sh              # LLM only
-#   ./build.sh --whisper    # LLM + Whisper STT
+#   ./build.sh              # ROCm backend (default)
+#   ./build.sh --vulkan     # Vulkan backend (RADV)
+#   ./build.sh --whisper    # LLM + Whisper STT (ROCm only)
 #   ./build.sh --ghcr       # Push to ghcr.io
+#
+# Available images:
+#   ghcr.io/mootikins/llama-swappo-halo:latest  - ROCm backend
+#   ghcr.io/mootikins/llama-swappo-halo:rocm    - ROCm backend (alias)
+#   ghcr.io/mootikins/llama-swappo-halo:vulkan  - Vulkan/RADV backend
 
 ARG BACKEND=rocm-6.4.4-rocwmma
 ARG WHISPER=false
