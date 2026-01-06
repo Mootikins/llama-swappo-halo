@@ -2,7 +2,8 @@
 # Build llama-swappo-halo container
 #
 # Usage:
-#   ./build.sh              # LLM proxy only
+#   ./build.sh              # LLM proxy only (ROCm backend)
+#   ./build.sh --vulkan     # LLM with Vulkan backend (RADV)
 #   ./build.sh --whisper    # LLM + Whisper STT
 #   ./build.sh --push       # Push to local registry
 #   ./build.sh --ghcr       # Push to ghcr.io/mootikins/llama-swappo-halo
@@ -13,22 +14,34 @@ IMAGE="${IMAGE_NAME:-llama-swappo-halo}"
 GHCR_IMAGE="ghcr.io/mootikins/llama-swappo-halo"
 TAG="latest"
 WHISPER="false"
+BACKEND="rocm-6.4.4-rocwmma"
 BUILD_ARGS=""
 
 for arg in "$@"; do
     case $arg in
         --whisper)
             WHISPER="true"
-            TAG="whisper"
+            ;;
+        --vulkan)
+            BACKEND="vulkan-radv"
             ;;
         --push) PUSH=1 ;;
         --ghcr) GHCR=1 ;;
     esac
 done
 
-BUILD_ARGS="--build-arg WHISPER=$WHISPER"
+# Build tag based on options
+if [ "$BACKEND" = "vulkan-radv" ]; then
+    TAG="vulkan"
+    [ "$WHISPER" = "true" ] && TAG="vulkan-whisper"
+else
+    TAG="latest"
+    [ "$WHISPER" = "true" ] && TAG="whisper"
+fi
 
-echo "Building $IMAGE:$TAG (WHISPER=$WHISPER)"
+BUILD_ARGS="--build-arg WHISPER=$WHISPER --build-arg BACKEND=$BACKEND"
+
+echo "Building $IMAGE:$TAG (BACKEND=$BACKEND, WHISPER=$WHISPER)"
 
 # Use buildah for rootless builds
 buildah bud --layers $BUILD_ARGS -t "$IMAGE:$TAG" -f Containerfile .

@@ -20,7 +20,7 @@ FROM alpine:latest AS swappo-builder
 RUN apk add --no-cache git go nodejs npm ca-certificates
 
 WORKDIR /build
-RUN git clone https://github.com/mootikins/llama-swappo.git && \
+RUN git clone --branch fix/tool-response-id-matching https://github.com/mootikins/llama-swappo.git && \
     cd llama-swappo && \
     cd ui && npm install && npm run build && \
     cd .. && \
@@ -30,11 +30,13 @@ RUN git clone https://github.com/mootikins/llama-swappo.git && \
 # =============================================================================
 # Stage: whisper-builder - Build whisper.cpp with ROCm/HIP for gfx1151
 # Must be built locally - ROCm toolchain too large for CI runners
+# Note: Whisper is only supported with ROCm backend (not Vulkan)
 # =============================================================================
-FROM docker.io/kyuz0/amd-strix-halo-toolboxes:${BACKEND} AS whisper-builder
+FROM docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma AS whisper-builder
 
 ARG WHISPER
-RUN if [ "$WHISPER" = "true" ]; then \
+ARG BACKEND
+RUN if [ "$WHISPER" = "true" ] && echo "$BACKEND" | grep -q "^rocm"; then \
         dnf install -y git cmake make gcc gcc-c++ glibc-devel libstdc++-devel rocm-hip-sdk && \
         git clone https://github.com/ggml-org/whisper.cpp.git /build/whisper.cpp && \
         cd /build/whisper.cpp && \
@@ -54,7 +56,9 @@ RUN if [ "$WHISPER" = "true" ]; then \
                  /build/whisper.cpp/build/src \
                  /build/whisper.cpp/build/ggml/src && \
         touch /build/whisper.cpp/build/bin/whisper-server && \
-        touch /build/whisper.cpp/build/bin/whisper-cli; \
+        touch /build/whisper.cpp/build/bin/whisper-cli && \
+        touch /build/whisper.cpp/build/src/libwhisper.so && \
+        touch /build/whisper.cpp/build/ggml/src/libggml.so; \
     fi
 
 # =============================================================================
@@ -63,6 +67,7 @@ RUN if [ "$WHISPER" = "true" ]; then \
 FROM docker.io/kyuz0/amd-strix-halo-toolboxes:${BACKEND}
 
 ARG WHISPER
+ARG BACKEND
 
 WORKDIR /app
 RUN mkdir -p /models /models/whisper /app/lib
@@ -77,8 +82,8 @@ COPY --from=whisper-builder /build/whisper.cpp/build/bin/whisper-cli /app/whispe
 COPY --from=whisper-builder /build/whisper.cpp/build/src/libwhisper.so* /app/lib/
 COPY --from=whisper-builder /build/whisper.cpp/build/ggml/src/libggml*.so* /app/lib/
 
-# Install ffmpeg for audio processing (only if whisper enabled)
-RUN if [ "$WHISPER" = "true" ]; then \
+# Install ffmpeg for audio processing (only if whisper enabled with ROCm backend)
+RUN if [ "$WHISPER" = "true" ] && echo "$BACKEND" | grep -q "^rocm"; then \
         chmod +x /app/whisper-server /app/whisper-cli && \
         dnf install -y ffmpeg-free && \
         dnf clean all && rm -rf /var/cache/dnf; \
