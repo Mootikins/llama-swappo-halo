@@ -26,9 +26,9 @@ FROM alpine:latest AS swappo-builder
 RUN apk add --no-cache git go nodejs npm ca-certificates
 
 WORKDIR /build
-RUN git clone --branch fix/tool-response-id-matching https://github.com/mootikins/llama-swappo.git && \
+RUN git clone --branch fix/tool-response-position-matching https://github.com/mootikins/llama-swappo.git && \
     cd llama-swappo && \
-    cd ui && npm install && npm run build && \
+    cd ui-svelte && npm install && npm run build && \
     cd .. && \
     CGO_ENABLED=0 go build -o llama-swap . && \
     strip llama-swap
