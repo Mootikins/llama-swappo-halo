@@ -1,0 +1,50 @@
+name: Poll kyuz0 Base & Trigger Build
+
+# Rebuild our images whenever kyuz0/amd-strix-halo-toolboxes publishes a new
+# base (kyuz0 tracks llama.cpp releases, so this keeps llama.cpp current).
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compare base image digests
+        id: check
+        run: |
+          set -euo pipefail
+          hub() {
+            curl -sf "https://hub.docker.com/v2/repositories/kyuz0/amd-strix-halo-toolboxes/tags/$1" | jq -r '.digest'
+          }
+          {
+            echo "vulkan-radv $(hub vulkan-radv)"
+            echo "rocm-6.4.4-rocwmma $(hub rocm-6.4.4-rocwmma)"
+          } > .base-digests.new
+          if cmp -s .base-digests .base-digests.new; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            rm .base-digests.new
+          else
+            mv .base-digests.new .base-digests
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record digests and trigger build
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .base-digests
+          git commit -m "chore: kyuz0 base updated, triggering rebuild"
+          git push
+          gh workflow run build.yml -R "$GITHUB_REPOSITORY" -f backend=all
