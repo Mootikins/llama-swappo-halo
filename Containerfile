@@ -32,13 +32,14 @@ WORKDIR /build
 # clients such as Zed lose tool results. Upstream PR:
 # https://github.com/kooshi/llama-swappo/pull/18
 # The SHA is pinned so this layer is not reused from an older clone of the branch.
-ARG SWAPPO_REF=1c524412ca645d28b1b96802dba589356dd45d66
+# Current upstream builds the Svelte UI from ui/ into internal/server/ui_dist
+# and embeds it with -tags embed_ui.
 RUN git clone --branch fix/tool-response-position-matching https://github.com/mootikins/llama-swappo.git && \
     cd llama-swappo && \
-    git checkout "$SWAPPO_REF" && \
-    cd ui-svelte && npm install && npm run build && \
+    git -c advice.detachedHead=false checkout 1c524412ca645d28b1b96802dba589356dd45d66 && \
+    cd ui && npm install && npm run build && \
     cd .. && \
-    CGO_ENABLED=0 go build -o llama-swap . && \
+    CGO_ENABLED=0 go build -tags embed_ui -o llama-swap . && \
     strip llama-swap
 
 # =============================================================================
