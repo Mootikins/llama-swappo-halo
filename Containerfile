@@ -26,8 +26,16 @@ FROM alpine:latest AS swappo-builder
 RUN apk add --no-cache git go nodejs npm ca-certificates
 
 WORKDIR /build
+# Fork branch fix/tool-response-position-matching (same commit as main/master).
+# 1c52441 binds identifier-less Ollama tool responses to the pending assistant
+# tool calls (explicit id, then function name, then position). Without that,
+# clients such as Zed lose tool results. Upstream PR:
+# https://github.com/kooshi/llama-swappo/pull/18
+# The SHA is pinned so this layer is not reused from an older clone of the branch.
+ARG SWAPPO_REF=1c524412ca645d28b1b96802dba589356dd45d66
 RUN git clone --branch fix/tool-response-position-matching https://github.com/mootikins/llama-swappo.git && \
     cd llama-swappo && \
+    git checkout "$SWAPPO_REF" && \
     cd ui-svelte && npm install && npm run build && \
     cd .. && \
     CGO_ENABLED=0 go build -o llama-swap . && \
