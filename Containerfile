@@ -3,6 +3,7 @@
 # kyuz0/amd-strix-halo-toolboxes includes llama.cpp with ROCm or Vulkan
 # We add llama-swappo (Go proxy with Ollama API translation)
 # Optional: whisper.cpp for speech-to-text (ROCm only)
+# Vulkan image: stable-diffusion.cpp sd-server for image generation and edit
 #
 # Build:
 #   ./build.sh              # ROCm backend (default)
@@ -78,6 +79,27 @@ RUN if [ "$WHISPER" = "true" ] && echo "$BACKEND" | grep -q "^rocm"; then \
     fi
 
 # =============================================================================
+# Stage: sd-fetch - Get the stable-diffusion.cpp Vulkan release (sd-server)
+# The release binaries have RUNPATH $ORIGIN, so they load their own ggml from
+# /app/sd and not the ggml of llama.cpp in /usr/lib64. Do not copy these libs
+# to /app/lib: LD_LIBRARY_PATH has priority over RUNPATH for llama-server.
+# Only the Vulkan image gets sd-server.
+# =============================================================================
+FROM alpine:latest AS sd-fetch
+
+ARG BACKEND
+ARG SDCPP_TAG=master-945-a1ded76
+RUN mkdir -p /sd && \
+    if echo "$BACKEND" | grep -q "^vulkan"; then \
+        apk add --no-cache curl unzip && \
+        SHA=${SDCPP_TAG##*-} && \
+        curl -fsSL -o /tmp/sd.zip \
+            "https://github.com/leejet/stable-diffusion.cpp/releases/download/${SDCPP_TAG}/sd-master-${SHA}-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip" && \
+        unzip -q /tmp/sd.zip -d /sd && \
+        rm /tmp/sd.zip; \
+    fi
+
+# =============================================================================
 # Final stage: Runtime image
 # =============================================================================
 FROM docker.io/kyuz0/amd-strix-halo-toolboxes:${BACKEND}
@@ -108,9 +130,12 @@ RUN if [ "$WHISPER" = "true" ] && echo "$BACKEND" | grep -q "^rocm"; then \
         rm -rf /app/lib; \
     fi
 
+# Copy sd-server, sd-cli and their libs (empty for the ROCm image)
+COPY --from=sd-fetch /sd /app/sd
+
 ENV LD_LIBRARY_PATH="/app/lib:${LD_LIBRARY_PATH}"
 
-ENV PATH="/app:${PATH}"
+ENV PATH="/app:/app/sd:${PATH}"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
