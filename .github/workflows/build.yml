@@ -38,6 +38,8 @@ jobs:
             tag_alias: rocm
           - backend: vulkan-radv
             tag: vulkan
+            # LFM3 needs b11960. The kyuz0 base has an older build (2026-10-25).
+            llama_cpp_ref: b11960
 
     # Skip matrix entries based on workflow_dispatch input
     # On push events, build all; on dispatch, filter by input
@@ -92,6 +94,7 @@ jobs:
           build-args: |
             BACKEND=${{ matrix.backend }}
             WHISPER=false
+            LLAMA_CPP_REF=${{ matrix.llama_cpp_ref }}
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ matrix.tag }}
             ${{ matrix.tag_alias && format('{0}/{1}:{2}', env.REGISTRY, steps.image.outputs.name, matrix.tag_alias) || '' }}

@@ -100,6 +100,41 @@ RUN mkdir -p /sd && \
     fi
 
 # =============================================================================
+# Stage: llama-builder - Build llama.cpp at a pinned ref (Vulkan only)
+# The kyuz0 base can lag llama.cpp. When LLAMA_CPP_REF is set, this stage
+# builds that ref, and its files replace the llama.cpp of the base. When the
+# ref is empty, /out stays empty and the base llama.cpp is kept. The
+# workflow sets the ref for the Vulkan image. Remove the ref from the workflow
+# when the kyuz0 base has that ref or a newer one, or the pin replaces a newer
+# llama.cpp of the base.
+# The sed applies the kyuz0 grammar patch (kyuz0 issue #70) for large tool schemas.
+# =============================================================================
+FROM registry.fedoraproject.org/fedora:44 AS llama-builder
+
+ARG BACKEND
+ARG LLAMA_CPP_REF=
+RUN mkdir -p /out && \
+    if [ -n "$LLAMA_CPP_REF" ] && echo "$BACKEND" | grep -q "^vulkan"; then \
+        dnf -y --nodocs --setopt=install_weak_deps=False install \
+            git make gcc gcc-c++ cmake ninja-build libcurl-devel rdma-core-devel \
+            vulkan-loader-devel spirv-headers-devel glslc && \
+        git clone --depth 1 --branch "$LLAMA_CPP_REF" https://github.com/ggml-org/llama.cpp.git /src && \
+        cd /src && \
+        sed -i 's/^#define MAX_REPETITION_THRESHOLD 2000$/#define MAX_REPETITION_THRESHOLD 100000/' src/llama-grammar.cpp && \
+        grep -q 'MAX_REPETITION_THRESHOLD 100000' src/llama-grammar.cpp && \
+        cmake -S . -B build -G Ninja \
+            -DGGML_VULKAN=ON \
+            -DGGML_RPC=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=ON \
+            -DLLAMA_BUILD_SERVER=ON && \
+        cmake --build build --config Release && \
+        DESTDIR=/out cmake --install build --config Release; \
+    fi
+
+# =============================================================================
 # Final stage: Runtime image
 # =============================================================================
 FROM docker.io/kyuz0/amd-strix-halo-toolboxes:${BACKEND}
@@ -109,6 +144,10 @@ ARG BACKEND
 
 WORKDIR /app
 RUN mkdir -p /models /models/whisper /app/lib
+
+# Replace the base llama.cpp with the pinned build (no-op when /out is empty)
+COPY --from=llama-builder /out/ /
+RUN ldconfig
 
 # Copy llama-swappo binary
 COPY --from=swappo-builder /build/llama-swappo/llama-swap /app/llama-swap

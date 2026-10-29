@@ -39,7 +39,7 @@ else
     [ "$WHISPER" = "true" ] && TAG="whisper"
 fi
 
-BUILD_ARGS="--build-arg WHISPER=$WHISPER --build-arg BACKEND=$BACKEND"
+BUILD_ARGS="--build-arg WHISPER=$WHISPER --build-arg BACKEND=$BACKEND --build-arg LLAMA_CPP_REF=${LLAMA_CPP_REF:-}"
 
 echo "Building $IMAGE:$TAG (BACKEND=$BACKEND, WHISPER=$WHISPER)"
 
